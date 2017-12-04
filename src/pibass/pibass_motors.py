@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 import atexit
 import heapq
@@ -9,26 +9,15 @@ import time
 from Adafruit_MotorHAT import Adafruit_MotorHAT, Adafruit_DCMotor
 
 
-class MotorEvent:
-  def __init__(self, motor, run_arg=Adafruit_MotorHAT.RELEASE, speed=-1):
-    self.motor = motor
-    self.run_arg = run_arg
-    self.speed = speed
-
-
-class PiBass(object):
+class PiBassMotors(object):
   def __init__(self):
     self.hat = Adafruit_MotorHAT(addr=0x60)
     self.hat_mutex = threading.Lock()
+    with self.hat_mutex:
+      self.mouth = self.hat.getMotor(1)
+      self.head  = self.hat.getMotor(2)
+      self.tail  = self.hat.getMotor(3)
 
-    self.mouth = self.hat.getMotor(1)
-    self.head  = self.hat.getMotor(2)
-    self.tail  = self.hat.getMotor(3)
-
-    self.events = []
-    self.events_mutex = threading.Lock()
-    self.event_loop_active = False
-    self.event_thread = threading.Thread(target=self.event_loop)
     atexit.register(self.terminate)
 
 
@@ -42,10 +31,95 @@ class PiBass(object):
 
   def terminate(self):
     self.turn_off_all_motors()
+
+
+  def turn_off_all_motors(self):
+    with self.hat_mutex:
+      for i in range(1, 5):
+        self.hat.getMotor(i).run(Adafruit_MotorHAT.RELEASE)
+
+
+  def test_motor(self, motor, delay=0.3, speed=255, loop=3, pre_unlatch_delay=0.0, reverse_first=False):
+    with self.hat_mutex:
+      for i in range(loop):
+        move_dir = Adafruit_MotorHAT.BACKWARD if reverse_first else Adafruit_MotorHAT.FORWARD
+        unlatch_dir = Adafruit_MotorHAT.FORWARD if reverse_first else Adafruit_MotorHAT.BACKWARD
+        if pre_unlatch_delay > 0:
+          motor.setSpeed(255)
+          motor.run(unlatch_dir)
+          time.sleep(pre_unlatch_delay)
+        motor.setSpeed(speed)
+        motor.run(move_dir)
+        time.sleep(delay)
+        motor.setSpeed(0)
+
+        time.sleep(delay)
+
+        move_dir, unlatch_dir = unlatch_dir, move_dir
+        if pre_unlatch_delay > 0:
+          motor.setSpeed(255)
+          motor.run(unlatch_dir)
+          time.sleep(pre_unlatch_delay)
+        motor.setSpeed(speed)
+        motor.run(move_dir)
+        time.sleep(delay)
+        motor.setSpeed(0)
+
+        time.sleep(delay)
+
+      motor.run(Adafruit_MotorHAT.RELEASE)
+
+
+  def move_mouth(self, speed=255, delay_move=0.12, delay_open=0.15, release=False):
+    with self.hat_mutex:
+      motor = self.mouth
+      motor.setSpeed(speed)
+      motor.run(Adafruit_MotorHAT.FORWARD)
+      time.sleep(delay_move)
+      motor.setSpeed(0)
+      time.sleep(delay_open)
+      motor.setSpeed(speed)
+      motor.run(Adafruit_MotorHAT.BACKWARD)
+      time.sleep(delay_move)
+      motor.setSpeed(0)
+      if release:
+        motor.run(Adafruit_MotorHAT.RELEASE)
+
+
+  def move_tail(self, speed=255, delay_move=0.15, delay_open=0.2):
+    with self.hat_mutex:
+      motor = self.tail
+      motor.setSpeed(speed)
+      motor.run(Adafruit_MotorHAT.FORWARD)
+      time.sleep(delay_move)
+      motor.setSpeed(0)
+      time.sleep(delay_open)
+      motor.run(Adafruit_MotorHAT.RELEASE)
+
+
+class MotorEvent:
+  def __init__(self, motor, run_arg=None, speed=None):
+    self.motor = motor
+    self.run_arg = run_arg
+    self.speed = speed
+
+
+class PiBassAsyncMotors(PiBassMotors):
+  def __init__(self):
+    self.events = []
+    self.events_mutex = threading.Lock()
+    self.event_loop_active = False
+    self.event_thread = threading.Thread(target=self.event_loop)
+    super(PiBassAsyncMotors, self).__init__()
+    self.event_thread.start()
+
+
+  def terminate(self):
     self.event_loop_active = False
     if self.event_thread is not None:
       self.event_thread.join()
       self.event_thread = None
+    super(PiBassAsyncMotors, self).terminate()
 
 
   def add_event(self, event, t=time.time()):
@@ -62,9 +136,10 @@ class PiBass(object):
         with self.events_mutex:
           _, event = heapq.heappop(self.events)
         with self.hat_mutex:
-          if event.speed >= 0:
+          if event.speed is not None:
             event.motor.setSpeed(event.speed)
-          event.motor.run(event.run_arg)
+          if event.run_arg is not None:
+            event.motor.run(event.run_arg)
         continue
 
       else: # did not process any events
@@ -73,70 +148,67 @@ class PiBass(object):
     self.event_loop_active = False
 
 
-  def turn_off_all_motors(self):
-    for i in range(1, 5):
-      self.hat.getMotor(i).run(Adafruit_MotorHAT.RELEASE)
+def test_motor(self, motor, delay=0.3, speed=255, loop=3, pre_unlatch_delay=0.0, reverse_first=False, t=None):
+  if t is None:
+    t = time.time()
+    
+  for i in range(loop):
+    move_dir = Adafruit_MotorHAT.BACKWARD if reverse_first else Adafruit_MotorHAT.FORWARD
+    unlatch_dir = Adafruit_MotorHAT.FORWARD if reverse_first else Adafruit_MotorHAT.BACKWARD
+    if pre_unlatch_delay > 0:
+      self.add_event(MotorEvent(motor, unlatch_dir, 255), t)
+      t += pre_unlatch_delay
+    self.add_event(MotorEvent(motor, move_dir, speed), t)
+    t += delay
+    self.add_event(MotorEvent(motor, None, 0), t)
+
+    t += delay
+
+    move_dir, unlatch_dir = unlatch_dir, move_dir
+    if pre_unlatch_delay > 0:
+      self.add_event(MotorEvent(motor, unlatch_dir, 255), t)
+      t += pre_unlatch_delay
+    self.add_event(MotorEvent(motor, move_dir, speed), t)
+    t += delay
+    self.add_event(MotorEvent(motor, None, 0), t)
+
+    t += delay
+
+    self.add_event(MotorEvent(motor, Adafruit_MotorHAT.RELEASE, None), t)
+
+    return t
 
 
-  def test_motor(self, motor, delay=0.3, speed=255, loop=3, pre_unlatch_delay=0.0, reverse_first=False):
-    for i in range(loop):
-      move_dir = Adafruit_MotorHAT.BACKWARD if reverse_first else Adafruit_MotorHAT.FORWARD
-      unlatch_dir = Adafruit_MotorHAT.FORWARD if reverse_first else Adafruit_MotorHAT.BACKWARD
-      if pre_unlatch_delay > 0:
-        motor.setSpeed(255)
-        motor.run(unlatch_dir)
-        time.sleep(pre_unlatch_delay)
-      motor.setSpeed(speed)
-      motor.run(move_dir)
-      time.sleep(delay)
-      motor.setSpeed(0)
-
-      time.sleep(delay)
-
-      move_dir, unlatch_dir = unlatch_dir, move_dir
-      if pre_unlatch_delay > 0:
-        motor.setSpeed(255)
-        motor.run(unlatch_dir)
-        time.sleep(pre_unlatch_delay)
-      motor.setSpeed(speed)
-      motor.run(move_dir)
-      time.sleep(delay)
-      motor.setSpeed(0)
-
-      time.sleep(delay)
-
-    motor.run(Adafruit_MotorHAT.RELEASE)
-
-
-  def move_mouth(self, speed=255, delay_move=0.12, delay_open=0.15, release=False):
+  def move_mouth(self, speed=255, delay_move=0.12, delay_open=0.15, release=False, t=None):
+    if t is None:
+      t = time.time()
     motor = self.mouth
-    motor.setSpeed(speed)
-    motor.run(Adafruit_MotorHAT.FORWARD)
-    time.sleep(delay_move)
-    motor.setSpeed(0)
-    time.sleep(delay_open)
-    motor.setSpeed(speed)
-    motor.run(Adafruit_MotorHAT.BACKWARD)
-    time.sleep(delay_move)
-    motor.setSpeed(0)
+    self.add_event(MotorEvent(motor, Adafruit_MotorHAT.FORWARD, speed), t)
+    t += delay_move
+    self.add_event(MotorEvent(motor, None, 0), t)
+    t += delay_open
+    self.add_event(MotorEvent(motor, Adafruit_MotorHAT.BACKWARD, speed), t)
+    t += delay_move
+    self.add_event(MotorEvent(motor, None, 0), t)
     if release:
-      motor.run(Adafruit_MotorHAT.RELEASE)
+      self.add_event(MotorEvent(motor, Adafruit_MotorHAT.RELEASE, None), t)
+    return t
 
 
-  def move_tail(self, speed=255, delay_move=0.15, delay_open=0.2):
+  def move_tail(self, speed=255, delay_move=0.15, delay_open=0.2, t=None):
+    if t is None:
+      t = time.time()
     motor = self.tail
-    motor.setSpeed(speed)
-    motor.run(Adafruit_MotorHAT.FORWARD)
-    time.sleep(delay_move)
-    motor.setSpeed(0)
-    time.sleep(delay_open)
-    motor.run(Adafruit_MotorHAT.RELEASE)
+    self.add_event(MotorEvent(motor, Adafruit_MotorHAT.FORWARD, speed), t)
+    t += delay_move
+    self.add_event(MotorEvent(motor, None, 0), t)
+    t += delay_open
+    self.add_event(MotorEvent(motor, Adafruit_MotorHAT.RELEASE, None), t)
+    return t
 
 
-def main():
-  # TODO: find some python audio library to compute amplitude signal given audio file
-  #       binarize (with hysterisis?), and trigger mouth movements
-  bass = PiBass()
+def test_pibass_motors():
+  bass = PiBassMotors() # TODO: test with PiBassAsyncMotors
   test_mouth = False
   test_tail = True
 
@@ -158,4 +230,4 @@ def main():
 
 
 if __name__ == '__main__':
-  main()
+  test_pibass_motors()
