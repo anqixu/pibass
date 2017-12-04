@@ -207,8 +207,8 @@ def test_motor(self, motor, delay=0.3, speed=255, loop=3, pre_unlatch_delay=0.0,
     return t
 
 
-def test_pibass_motors():
-  bass = PiBassMotors() # TODO: test with PiBassAsyncMotors
+def test_pibass_motors(async=True):
+  bass = PiBassAsyncMotors() if async else PiBassMotors()
   test_mouth = False
   test_tail = True
 
@@ -227,6 +227,8 @@ def test_pibass_motors():
   #bass.test_motor(bass.mouth, reverse_first=False)
   #bass.test_motor(bass.tail,  reverse_first=False)
   #bass.test_motor(bass.head,  reverse_first=True, pre_unlatch_delay=0.1)
+
+  bass.terminate()
 
 
 if __name__ == '__main__':

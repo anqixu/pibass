@@ -58,21 +58,25 @@ class PiBassAudio(PiBassAsyncMotors):
       self.onset_buf_size, self.onset_hop_size, self.audio_sample_rate)
 
 
-  def generate_onset_motor_events(audio_path, mouth_open_sec_min=0.05, mouth_open_sec_max=0.1, mouth_move_sec=0.12):
+  def generate_onset_motor_events(self, audio_path, mouth_open_sec_min=0.05, mouth_open_sec_max=0.1, mouth_move_sec=0.12):
     # Load audio stream
-    audio_stream = aubio.source(audo_path, self.audio_sample_rate, self.onset_hop_size)
+    audio_stream = aubio.source(audio_path, self.audio_sample_rate, self.onset_hop_size)
 
     # Detect all onsets
     onsets = []
     read = self.onset_hop_size # default
+    total_frames = 0
     while read < self.onset_hop_size:
       samples, read = audio_stream()
+      total_frames += read
       if self.onset_detector(samples):
         onsets.append(self.onset_detector.get_last_s())
 
+    print('All onsets:\n%s\n' % '\n- '.join('%d' % o for o in onsets))
+
     # Insert motor events
     min_event_gap_sec = 2*mouth_move_sec+mouth_open_sec_min
-    audio_total_s = audio_stream.get_duration()*audio_stream.get_samplerate()
+    audio_total_s = total_frames*audio_stream.samplerate
     onsets.append(audio_total_s) # Insert end-of-file time
     prev_t = None
     now = time.time()
@@ -82,18 +86,20 @@ class PiBassAudio(PiBassAsyncMotors):
         dt_max = t - prev_t
         if dt_max < min_event_gap_sec: # skip
           continue
+        mouth_open_sec = random.uniform(mouth_open_sec_min, mouth_open_sec_max)
         self.move_mouth(delay_move=mouth_move_sec,
-                        delay_open=random.uniform(mouth_open_sec_min, mouth_open_sec_max),
+                        delay_open=mouth_open_sec,
                         t=t)
+        print('move_mouth(%.1f, %.1f, %.1f)' % (mouth_move_sec, mouth_open_sec, t))
       prev_t = t
 
 
   def speak(self, text):
     with self.audio_mutex:
-      mp3_stream = text_to_mp3_stream(text=text, mp3_sample_rate=self.audio_sample_rate)
-      save_mp3_stream(mp3_stream, self.audio_temp_filepath)
-      generate_onset_motor_events(self.audio_temp_filepath)
-      play_mp3_stream(mp3_stream)
+      #mp3_stream = text_to_mp3_stream(text=text, mp3_sample_rate=self.audio_sample_rate)
+      #save_mp3_stream(mp3_stream, self.audio_temp_filepath)
+      self.generate_onset_motor_events(self.audio_temp_filepath)
+      #play_mp3_stream(mp3_stream)
 
 
 def test_pibass_audio():
@@ -124,5 +130,5 @@ def test_polly_text_to_speech():
 
 
 if __name__ == '__main__':
-  test_polly_text_to_speech()
-  #test_pibass_audio() # TODO: enable this
+  #test_polly_text_to_speech()
+  test_pibass_audio()
