@@ -1,19 +1,76 @@
 #!/usr/bin/python
+
+import atexit
+import heapq
+import random
+import threading
+import time
+
 from Adafruit_MotorHAT import Adafruit_MotorHAT, Adafruit_DCMotor
 
-import time
-import atexit
-import random
+
+class MotorEvent:
+  def __init__(self, motor, run_arg=Adafruit_MotorHAT.RELEASE, speed=-1):
+    self.motor = motor
+    self.run_arg = run_arg
+    self.speed = speed
 
 
 class PiBass(object):
   def __init__(self):
     self.hat = Adafruit_MotorHAT(addr=0x60)
-    atexit.register(self.turn_off_all_motors)
+    self.hat_mutex = threading.Lock()
 
     self.mouth = self.hat.getMotor(1)
     self.head  = self.hat.getMotor(2)
     self.tail  = self.hat.getMotor(3)
+
+    self.events = []
+    self.events_mutex = threading.Lock()
+    self.event_loop_active = False
+    self.event_thread = threading.Thread(target=self.event_loop)
+    atexit.register(self.terminate)
+
+
+  def __enter__(self):
+    return self
+
+
+  def __exit__(self, type, value, traceback):
+    self.terminate()
+
+
+  def terminate(self):
+    self.turn_off_all_motors()
+    self.event_loop_active = False
+    if self.event_thread is not None:
+      self.event_thread.join()
+      self.event_thread = None
+
+
+  def add_event(self, event, t=time.time()):
+    with self.events_mutex:
+      heapq.heappush(self.events, (t, event))
+
+
+  def event_loop(self):
+    self.event_loop_active = True
+
+    while self.event_loop_active:
+      now = time.time()
+      if len(self.events) > 0 and self.events[0][0] >= now: # if has time-expired event
+        with self.events_mutex:
+          _, event = heapq.heappop(self.events)
+        with self.hat_mutex:
+          if event.speed >= 0:
+            event.motor.setSpeed(event.speed)
+          event.motor.run(event.run_arg)
+        continue
+
+      else: # did not process any events
+        time.sleep(0.01)
+
+    self.event_loop_active = False
 
 
   def turn_off_all_motors(self):
@@ -77,11 +134,8 @@ class PiBass(object):
 
 
 def main():
-  # TODO: implement spin loop to asynchronously submit motor changes
-  # TODO: start thread with spin loop enabled; on die release all motors
   # TODO: find some python audio library to compute amplitude signal given audio file
   #       binarize (with hysterisis?), and trigger mouth movements
-
   bass = PiBass()
   test_mouth = False
   test_tail = True
