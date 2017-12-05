@@ -17,6 +17,7 @@ if len( sys.argv ) > 2: method = sys.argv[2]
 
 s = source(filename, samplerate, hop_s)
 samplerate = s.samplerate
+print('Sample rate for %s: %d' % (filename, samplerate))
 
 o = onset(method, win_s, hop_s, samplerate)
 
@@ -33,6 +34,7 @@ while True:
     total_frames += read
     if read < hop_s: break
 #print len(onsets)
+
 
 """
 ./aubioonset_example.py this_is_a_test.mp3 default
