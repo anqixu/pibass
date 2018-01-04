@@ -227,8 +227,8 @@ class PiBassAsyncMotors(PiBassMotors):
 def test_pibass_motors(async=True):
   bass = PiBassAsyncMotors() if async else PiBassMotors()
   test_head = True
-  test_mouth = False
-  test_tail = False
+  test_mouth = True
+  test_tail = True
 
   if test_head:
     t = bass.move_head(open=True, release=False)

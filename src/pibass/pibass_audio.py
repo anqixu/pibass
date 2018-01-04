@@ -100,16 +100,15 @@ class PiBassAudio(PiBassAsyncMotors):
 
   def speak(self, text):
     with self.audio_mutex:
+      t = self.move_head(open=True, release=False)
       mp3_stream = text_to_mp3_stream(text=text, aws_region=self.args.aws_region, polly_voice_id=self.args.polly_voice_id, mp3_sample_rate=self.audio_sample_rate)
       save_mp3_stream(mp3_stream, self.audio_temp_filepath)
       sound = pydub.AudioSegment.from_file(io.BytesIO(mp3_stream), format="mp3")
-      t = self.move_head(open=True, release=False)
-      time.sleep(t-time.time()+0.5)
+      if t > time.time():
+        time.sleep(t-time.time())
       self.generate_onset_motor_events(self.audio_temp_filepath, dt_offset=0.5)
       pydub.playback.play(sound)
       time.sleep(0.5)
-      t = self.move_head(open=False, release=False)
-      time.sleep(t-time.time())
 
 
 def test_pibass_audio():
