@@ -19,8 +19,10 @@ def filter_text(msg):
 
 class TTSPlugin(Plugin):
   def __init__(self, *kargs, **kwargs):
-    super().__init__(*kargs, **kwargs)
+    super(TTSPlugin, self).__init__(*kargs, **kwargs)
     self.trans = googletrans.Translator()
+    print(pibass)
+    print(pibass.__dict__)
     self.bass = pibass.PiBassAudio(args=None)
 
   """
