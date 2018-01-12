@@ -1,0 +1,6 @@
+Adafruit_MotorHAT
+aubio
+boto3
+googletrans
+pydub
+rtmbot
