@@ -21,8 +21,7 @@ class TTSPlugin(Plugin):
   def __init__(self, *kargs, **kwargs):
     super().__init__(*kargs, **kwargs)
     self.trans = googletrans.Translator()
-    self.bass = PiBassAudio(args, audio_sample_rate=22050)
-bass.speak(args.text)
+    self.bass = PiBassAudio(args=None)
 
   """
   Returns language_code, confidence

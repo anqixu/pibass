@@ -46,7 +46,7 @@ def play_mp3_stream(mp3_bytes):
 
 
 class PiBassAudio(PiBassAsyncMotors):
-  def __init__(self, args, audio_temp_filepath='/tmp/pibass_audio.mp3',
+  def __init__(self, args=None, audio_temp_filepath='/tmp/pibass_audio.mp3',
       audio_sample_rate=22050,
       onset_buf_size=512, onset_hop_size=256, onset_method='mkl'):
     super(PiBassAudio, self).__init__()
@@ -98,13 +98,17 @@ class PiBassAudio(PiBassAsyncMotors):
       prev_t = t
 
     # TODO: randomly insert tail motor events (mouth_start_t to prev_t)
-    # TODO: slack integraton
 
 
-  def speak(self, text):
+  def speak(self, text, polly_voice_id=None):
+    aws_region = 'us-east-1'
+    if self.args is not None:
+      aws_region = self.args.aws_region or aws_region
+    polly_voice_id = polly_voice_id or self.args.polly_voice_id
+
     with self.audio_mutex:
       t = self.move_head(open=True, release=False)
-      mp3_stream = text_to_mp3_stream(text=text, aws_region=self.args.aws_region, polly_voice_id=self.args.polly_voice_id, mp3_sample_rate=self.audio_sample_rate)
+      mp3_stream = text_to_mp3_stream(text=text, aws_region=aws_region, polly_voice_id=polly_voice_id, mp3_sample_rate=self.audio_sample_rate)
       save_mp3_stream(mp3_stream, self.audio_temp_filepath)
       sound = pydub.AudioSegment.from_file(io.BytesIO(mp3_stream), format="mp3")
       if t > time.time():
