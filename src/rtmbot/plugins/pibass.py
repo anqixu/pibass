@@ -55,4 +55,5 @@ class TTSPlugin(Plugin):
       
       # Synthesize voice
       print(msg, voice, lang_code)
+      self.bass.speak(msg, voice)
     #  self.outputs.append([data['channel'], 'from repeat1 "{}" in channel {}'.format(data['text'], data['channel'])])
