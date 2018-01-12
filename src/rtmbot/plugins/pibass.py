@@ -5,7 +5,7 @@ from rtmbot.core import Plugin
 import re
 import googletrans
 
-from pibass import get_voice, PiBassAudio
+import pibass
 
 
 # Remove tags and clean up string
@@ -21,7 +21,7 @@ class TTSPlugin(Plugin):
   def __init__(self, *kargs, **kwargs):
     super().__init__(*kargs, **kwargs)
     self.trans = googletrans.Translator()
-    self.bass = PiBassAudio(args=None)
+    self.bass = pibass.PiBassAudio(args=None)
 
   """
   Returns language_code, confidence
@@ -42,18 +42,18 @@ class TTSPlugin(Plugin):
       if match is not None: # Scan for manual language/gender/voice
         query = msg[1:match.end()-1]
         msg = msg[match.end():].strip()
-        voice, gender, lang_code = get_voice(query)
+        voice, gender, lang_code = pibass.get_voice(query)
       else: # Detect language
         lang, lang_conf = self.detect_language(msg)
         lang = lang.lower()
-        voice, gender, lang_code = get_voice(lang)
+        voice, gender, lang_code = pibass.get_voice(lang)
         if voice is None and len(lang) > 2:
           lang = lang[:2]
-          voice, gender, lang_code = get_voice(lang)
+          voice, gender, lang_code = pibass.get_voice(lang)
       if voice is None: # Default to English
-        voice, gender, lang_code = get_voice('en')
+        voice, gender, lang_code = pibass.get_voice('en')
       
       # Synthesize voice
-      print(msg, voice, lang_code)
+      print('- msg: %s\n- voice: %s\n-lang: %s\n\n' % (msg, voice, lang_code))
       self.bass.speak(msg, voice)
     #  self.outputs.append([data['channel'], 'from repeat1 "{}" in channel {}'.format(data['text'], data['channel'])])

@@ -101,3 +101,4 @@ ENV/
 .mypy_cache/
 
 polly_output.mp3
+rtmbot.conf

@@ -1,0 +1,4 @@
+DEBUG: True
+SLACK_TOKEN: ""
+ACTIVE_PLUGINS:
+  - plugins.pibass.TTSPlugin
