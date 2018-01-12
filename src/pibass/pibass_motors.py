@@ -14,8 +14,8 @@ class PiBassMotors(object):
     self.hat = Adafruit_MotorHAT(addr=0x60)
     self.hat_mutex = threading.Lock()
     with self.hat_mutex:
-      self.mouth = self.hat.getMotor(1)
-      self.head  = self.hat.getMotor(2)
+      self.head  = self.hat.getMotor(1)
+      self.mouth = self.hat.getMotor(2)
       self.tail  = self.hat.getMotor(3)
 
     atexit.register(self.terminate)
@@ -39,15 +39,10 @@ class PiBassMotors(object):
         self.hat.getMotor(i).run(Adafruit_MotorHAT.RELEASE)
 
 
-  def test_motor(self, motor, delay=0.3, speed=255, loop=3, pre_unlatch_delay=0.0, reverse_first=False, t=None):
+  def test_motor(self, motor, delay=0.3, speed=255, loop=3, reverse_first=False, t=None):
     with self.hat_mutex:
       for i in range(loop):
         move_dir = Adafruit_MotorHAT.BACKWARD if reverse_first else Adafruit_MotorHAT.FORWARD
-        unlatch_dir = Adafruit_MotorHAT.FORWARD if reverse_first else Adafruit_MotorHAT.BACKWARD
-        if pre_unlatch_delay > 0:
-          motor.setSpeed(255)
-          motor.run(unlatch_dir)
-          time.sleep(pre_unlatch_delay)
         motor.setSpeed(speed)
         motor.run(move_dir)
         time.sleep(delay)
@@ -55,11 +50,7 @@ class PiBassMotors(object):
 
         time.sleep(delay)
 
-        move_dir, unlatch_dir = unlatch_dir, move_dir
-        if pre_unlatch_delay > 0:
-          motor.setSpeed(255)
-          motor.run(unlatch_dir)
-          time.sleep(pre_unlatch_delay)
+        move_dir = Adafruit_MotorHAT.FORWARD if reverse_first else Adafruit_MotorHAT.BACKWARD
         motor.setSpeed(speed)
         motor.run(move_dir)
         time.sleep(delay)
@@ -70,7 +61,18 @@ class PiBassMotors(object):
       motor.run(Adafruit_MotorHAT.RELEASE)
 
 
-  def move_mouth(self, speed=255, delay_move=0.12, delay_open=0.15, release=False, t=None):
+  def move_head(self, speed=255, delay_move=0.3, open=True, release=True, t=None):
+    with self.hat_mutex:
+      motor = self.head
+      motor.setSpeed(speed)
+      motor.run(Adafruit_MotorHAT.BACKWARD if open else Adafruit_MotorHAT.FORWARD)
+      time.sleep(delay_move)
+      motor.setSpeed(0)
+      if release:
+        motor.run(Adafruit_MotorHAT.RELEASE)
+
+
+  def move_mouth(self, speed=255, delay_move=0.12, delay_open=0.15, release=True, t=None):
     with self.hat_mutex:
       motor = self.mouth
       motor.setSpeed(speed)
@@ -86,7 +88,7 @@ class PiBassMotors(object):
         motor.run(Adafruit_MotorHAT.RELEASE)
 
 
-  def move_tail(self, speed=255, delay_move=0.15, delay_open=0.2, t=None):
+  def move_tail(self, speed=255, delay_move=0.12, delay_open=0.1, release=True, t=None):
     with self.hat_mutex:
       motor = self.tail
       motor.setSpeed(speed)
@@ -94,7 +96,12 @@ class PiBassMotors(object):
       time.sleep(delay_move)
       motor.setSpeed(0)
       time.sleep(delay_open)
-      motor.run(Adafruit_MotorHAT.RELEASE)
+      motor.setSpeed(speed)
+      motor.run(Adafruit_MotorHAT.BACKWARD)
+      time.sleep(delay_move)
+      motor.setSpeed(0)
+      if release:
+        motor.run(Adafruit_MotorHAT.RELEASE)
 
 
 class MotorEvent:
@@ -148,26 +155,19 @@ class PiBassAsyncMotors(PiBassMotors):
     self.event_loop_active = False
 
 
-  def test_motor(self, motor, delay=0.3, speed=255, loop=3, pre_unlatch_delay=0.0, reverse_first=False, t=None):
+  def test_motor(self, motor, delay=0.3, speed=255, loop=3, reverse_first=False, t=None):
     if t is None:
       t = time.time()
       
     for i in range(loop):
       move_dir = Adafruit_MotorHAT.BACKWARD if reverse_first else Adafruit_MotorHAT.FORWARD
-      unlatch_dir = Adafruit_MotorHAT.FORWARD if reverse_first else Adafruit_MotorHAT.BACKWARD
-      if pre_unlatch_delay > 0:
-        self.add_event(MotorEvent(motor, unlatch_dir, 255), t)
-        t += pre_unlatch_delay
       self.add_event(MotorEvent(motor, move_dir, speed), t)
       t += delay
       self.add_event(MotorEvent(motor, None, 0), t)
 
       t += delay
 
-      move_dir, unlatch_dir = unlatch_dir, move_dir
-      if pre_unlatch_delay > 0:
-        self.add_event(MotorEvent(motor, unlatch_dir, 255), t)
-        t += pre_unlatch_delay
+      move_dir = Adafruit_MotorHAT.FORWARD if reverse_first else Adafruit_MotorHAT.BACKWARD
       self.add_event(MotorEvent(motor, move_dir, speed), t)
       t += delay
       self.add_event(MotorEvent(motor, None, 0), t)
@@ -179,7 +179,20 @@ class PiBassAsyncMotors(PiBassMotors):
       return t
 
 
-  def move_mouth(self, speed=255, delay_move=0.12, delay_open=0.15, release=False, t=None):
+  def move_head(self, speed=255, delay_move=0.3, open=True, release=True, t=None):
+    if t is None:
+      t = time.time()
+    motor = self.head
+    direction = Adafruit_MotorHAT.BACKWARD if open else Adafruit_MotorHAT.FORWARD
+    self.add_event(MotorEvent(motor, direction, speed), t)
+    t += delay_move
+    self.add_event(MotorEvent(motor, None, 0), t)
+    if release:
+      self.add_event(MotorEvent(motor, Adafruit_MotorHAT.RELEASE, None), t)
+    return t
+
+
+  def move_mouth(self, speed=255, delay_move=0.12, delay_open=0.15, release=True, t=None):
     if t is None:
       t = time.time()
     motor = self.mouth
@@ -195,7 +208,7 @@ class PiBassAsyncMotors(PiBassMotors):
     return t
 
 
-  def move_tail(self, speed=255, delay_move=0.15, delay_open=0.2, t=None):
+  def move_tail(self, speed=255, delay_move=0.12, delay_open=0.1, release=True, t=None):
     if t is None:
       t = time.time()
     motor = self.tail
@@ -203,35 +216,49 @@ class PiBassAsyncMotors(PiBassMotors):
     t += delay_move
     self.add_event(MotorEvent(motor, None, 0), t)
     t += delay_open
-    self.add_event(MotorEvent(motor, Adafruit_MotorHAT.RELEASE, None), t)
+    self.add_event(MotorEvent(motor, Adafruit_MotorHAT.BACKWARD, speed), t)
+    t += delay_move
+    self.add_event(MotorEvent(motor, None, 0), t)
+    if release:
+      self.add_event(MotorEvent(motor, Adafruit_MotorHAT.RELEASE, None), t)
     return t
 
 
 def test_pibass_motors(async=True):
   bass = PiBassAsyncMotors() if async else PiBassMotors()
+  test_head = True
   test_mouth = True
-  test_tail = False
+  test_tail = True
+
+  if test_head:
+    t = bass.move_head(open=True, release=False)
+    if async:
+      time.sleep(t-time.time())
+    time.sleep(0.5)
+    t = bass.move_head(open=False, release=False)
+    if async:
+      time.sleep(t-time.time())
+    time.sleep(1)
 
   if test_mouth:
-    for i in range(3):
-      t = bass.move_mouth(delay_open=random.uniform(0.05, 0.15))
+    for i in range(5):
+      t = bass.move_mouth(delay_open=random.uniform(0.05, 0.15), release=False)
       if async:
         time.sleep(t-time.time())
       time.sleep(random.uniform(0.025, 0.15))
     time.sleep(1)
-    if not async:
-      bass.mouth.run(Adafruit_MotorHAT.RELEASE)
 
   if test_tail:
-    for i in range(10):
-      t = bass.move_tail(delay_open=random.uniform(0.1, 0.3))
+    for i in range(5):
+      t = bass.move_tail(delay_open=random.uniform(0.05, 0.2), release=False)
       if async:
         time.sleep(t-time.time())
       time.sleep(random.uniform(0.025, 0.15))
+    time.sleep(1)
 
   #bass.test_motor(bass.mouth, reverse_first=False)
   #bass.test_motor(bass.tail,  reverse_first=False)
-  #bass.test_motor(bass.head,  reverse_first=True, pre_unlatch_delay=0.1)
+  #bass.test_motor(bass.head,  reverse_first=False)
 
   bass.terminate()
 

@@ -79,32 +79,39 @@ class PiBassAudio(PiBassAsyncMotors):
     onsets.append(audio_total_s) # Insert end-of-file time
     #print('Onsets:\n- %s' % ('\n- '.join('%.4f' % o for o in onsets)))
 
-    # Insert motor events
+    # Insert mouth motor events
     #min_event_gap_sec = 2*mouth_move_sec+mouth_open_sec_min # disabled
     min_event_gap_sec = 0.1
-    prev_t = None
-    now = time.time()
+    prev_t = time.time()
+    mouth_start_t = prev_t
     for onset_t in onsets:
-      t = now + dt_offset + onset_t
-      if prev_t is not None:
-        dt_max = t - prev_t
-        if dt_max < min_event_gap_sec: # skip
-          continue
-        mouth_open_sec = random.uniform(mouth_open_sec_min, mouth_open_sec_max)
-        self.move_mouth(delay_move=mouth_move_sec,
-                        delay_open=mouth_open_sec,
-                        t=prev_t)
-        #print('move_mouth(%.2f, %.2f, %.2f), o=%.2f po=%.2f dt=%.2f' % (mouth_move_sec, mouth_open_sec, prev_t, onset_t, prev_t-now, dt_max))
+      t = mouth_start_t + dt_offset + onset_t
+      dt_max = t - prev_t
+      if dt_max < min_event_gap_sec: # skip
+        continue
+      mouth_open_sec = random.uniform(mouth_open_sec_min, mouth_open_sec_max)
+      self.move_mouth(delay_move=mouth_move_sec,
+                      delay_open=mouth_open_sec,
+                      release=False,
+                      t=prev_t)
+      #print('move_mouth(%.2f, %.2f, %.2f), o=%.2f po=%.2f dt=%.2f' % (mouth_move_sec, mouth_open_sec, prev_t, onset_t, prev_t-now, dt_max))
       prev_t = t
+
+    # TODO: randomly insert tail motor events (mouth_start_t to prev_t)
+    # TODO: slack integraton
 
 
   def speak(self, text):
     with self.audio_mutex:
+      t = self.move_head(open=True, release=False)
       mp3_stream = text_to_mp3_stream(text=text, aws_region=self.args.aws_region, polly_voice_id=self.args.polly_voice_id, mp3_sample_rate=self.audio_sample_rate)
       save_mp3_stream(mp3_stream, self.audio_temp_filepath)
       sound = pydub.AudioSegment.from_file(io.BytesIO(mp3_stream), format="mp3")
+      if t > time.time():
+        time.sleep(t-time.time())
       self.generate_onset_motor_events(self.audio_temp_filepath, dt_offset=0.5)
       pydub.playback.play(sound)
+      time.sleep(0.5)
 
 
 def test_pibass_audio():
