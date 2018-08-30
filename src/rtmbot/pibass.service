@@ -1,0 +1,21 @@
+# Installation instructions:
+# > sudo cp pibass.service /lib/systemd/system/
+# > sudo chmod 644 /lib/systemd/system/pibass.service
+# > sudo systemctl daemon-reload
+# > sudo systemctl enable pibass.service
+# > sudo reboot
+
+[Unit]
+Description=PiBass RTM Slack Bot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=idle
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/rtmbot
+ExecStart=/usr/local/bin/rtmbot -c /home/pi/rtmbot/rtmbot.conf
+
+[Install]
+WantedBy=network-online.target
