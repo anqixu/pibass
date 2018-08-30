@@ -1,168 +1,112 @@
 #!/usr/bin/env python
 
-import aubio
 import argparse
-import boto3
-import io
+import pyaudio
 import pydub
-import pydub.playback
+import io
+import time
 import threading
 
 try:
-  from .pibass_motors import *
-except ImportError:
-  from pibass_motors import *
-except ValueError:
-  from pibass_motors import *
-
-
-def text_to_mp3_stream(
-    text='This is a test.',
-    aws_region='us-east-1',
-    polly_voice_id='Kimberly',
-    mp3_sample_rate=22050):
-  polly = boto3.client('polly', aws_region)
-  response = polly.synthesize_speech(
-    Text=text,
-    OutputFormat='mp3',
-    SampleRate=str(mp3_sample_rate),
-    TextType='text',
-    VoiceId=polly_voice_id)
-  # For more voices, see: http://boto3.readthedocs.io/en/latest/reference/services/polly.html#Polly.Client.synthesize_speech
-  # or http://docs.aws.amazon.com/polly/latest/dg/API_Voice.html
-
-  stream = response["AudioStream"]
-  mp3_bytes = stream.read()
-  stream.close()
-  return mp3_bytes
-
-
-def save_mp3_stream(mp3_bytes, output_file):
-  with(open(output_file, 'wb')) as f:
-    f.write(mp3_bytes)
-
-
-def play_mp3_stream(mp3_bytes):
-  sound = pydub.AudioSegment.from_file(io.BytesIO(mp3_bytes), format="mp3")
-  pydub.playback.play(sound)
+    from .audio_utils import OnsetDetector, text_to_mp3_stream, save_mp3_stream
+    from .pibass_motors import PiBassAsyncMotors
+except (ImportError, ValueError) as err:
+    from audio_utils import OnsetDetector, text_to_mp3_stream, save_mp3_stream
+    from pibass_motors import PiBassAsyncMotors
 
 
 class PiBassAudio(PiBassAsyncMotors):
-  def __init__(self, args=None, audio_temp_filepath='/tmp/pibass_audio.mp3',
-      audio_sample_rate=22050,
-      onset_buf_size=512, onset_hop_size=256, onset_method='mkl'):
-    super(PiBassAudio, self).__init__()
-    self.args = args
-    self.audio_temp_filepath = audio_temp_filepath
-    self.audio_sample_rate = audio_sample_rate
-    self.audio_mutex = threading.Lock()
-    self.onset_buf_size = onset_buf_size
-    self.onset_hop_size = onset_hop_size
-    self.onset_method = onset_method
+    def __init__(self, args=None, audio_temp_filepath='/tmp/pibass_audio.mp3'):
+        super(PiBassAudio, self).__init__()
+        self.args = args
+        self.audio_temp_filepath = audio_temp_filepath
+        self.audio_mutex = threading.Lock()
+        if args is not None:
+          self.onset_detector = OnsetDetector(
+              audio_sample_rate=args.mp3_sample_rate)
+        else:
+          self.onset_detector = OnsetDetector()
+        self.audio_dev = pyaudio.PyAudio()
 
-    self.onset_detector = aubio.onset(self.onset_method,
-      self.onset_buf_size, self.onset_hop_size, self.audio_sample_rate)
+  def terminate(self):
+    super(PiBassAudio, self).terminate()
+    self.audio_dev.terminate()
 
+    def insert_onset_motor_events(self, onsets, mouth_open_sec_min=0.05, mouth_open_sec_max=0.1, mouth_move_sec=0.1, dt_offset=0.):
+        # min_event_gap_sec = 2*mouth_move_sec+mouth_open_sec_min # disabled
+        min_event_gap_sec = 0.1
+        prev_t = time.time()
+        mouth_start_t = prev_t
+        for onset_t in onsets:
+            t = mouth_start_t + dt_offset + onset_t
+            dt_max = t - prev_t
+            if dt_max < min_event_gap_sec:  # skip
+                continue
+            mouth_open_sec = random.uniform(
+                mouth_open_sec_min, mouth_open_sec_max)
+            self.move_mouth(delay_move=mouth_move_sec,
+                            delay_open=mouth_open_sec,
+                            release=False,
+                            t=prev_t)
+            # print('move_mouth(%.2f, %.2f, %.2f), o=%.2f po=%.2f dt=%.2f' % (mouth_move_sec, mouth_open_sec, prev_t, onset_t, prev_t-now, dt_max))
+            prev_t = t
 
-  def generate_onset_motor_events(self, audio_path, mouth_open_sec_min=0.05, mouth_open_sec_max=0.1, mouth_move_sec=0.1, dt_offset=0.):
-    # Load audio stream
-    audio_stream = aubio.source(audio_path, self.audio_sample_rate, self.onset_hop_size)
+        # TODO: randomly insert tail motor events (mouth_start_t to prev_t)
 
-    # Detect all onsets
-    onsets = []
-    total_frames = 0
-    read = self.onset_hop_size # default value
-    while read >= self.onset_hop_size:
-      samples, read = audio_stream()
-      total_frames += read
-      if self.onset_detector(samples):
-        onsets.append(self.onset_detector.get_last_s())
-    audio_total_s = total_frames/audio_stream.samplerate
-    onsets.append(audio_total_s) # Insert end-of-file time
-    #print('Onsets:\n- %s' % ('\n- '.join('%.4f' % o for o in onsets)))
+    def speak(self, text, polly_voice_id=None, aws_region='us-east-1'):
+        if self.args is not None:
+            aws_region = self.args.aws_region or aws_region
+            polly_voice_id = polly_voice_id or self.args.polly_voice_id
 
-    # Insert mouth motor events
-    #min_event_gap_sec = 2*mouth_move_sec+mouth_open_sec_min # disabled
-    min_event_gap_sec = 0.1
-    prev_t = time.time()
-    mouth_start_t = prev_t
-    for onset_t in onsets:
-      t = mouth_start_t + dt_offset + onset_t
-      dt_max = t - prev_t
-      if dt_max < min_event_gap_sec: # skip
-        continue
-      mouth_open_sec = random.uniform(mouth_open_sec_min, mouth_open_sec_max)
-      self.move_mouth(delay_move=mouth_move_sec,
-                      delay_open=mouth_open_sec,
-                      release=False,
-                      t=prev_t)
-      #print('move_mouth(%.2f, %.2f, %.2f), o=%.2f po=%.2f dt=%.2f' % (mouth_move_sec, mouth_open_sec, prev_t, onset_t, prev_t-now, dt_max))
-      prev_t = t
+        with self.audio_mutex:
+            t = self.move_head(open=True, release=False)
 
-    # TODO: randomly insert tail motor events (mouth_start_t to prev_t)
+            # Obtain MP3 stream
+            mp3_stream = text_to_mp3_stream(
+                text=text, aws_region=aws_region, polly_voice_id=polly_voice_id, mp3_sample_rate=self.audio_sample_rate)
 
+            # Compute onsets
+            save_mp3_stream(mp3_stream, self.audio_temp_filepath)
+            onsets = self.onset_detector.detect(self.audio_temp_filepath)
 
-  def speak(self, text, polly_voice_id=None):
-    aws_region = 'us-east-1'
-    if self.args is not None:
-      aws_region = self.args.aws_region or aws_region
-    polly_voice_id = polly_voice_id or self.args.polly_voice_id
+            # Load as pydub audio segment
+            sound = pydub.AudioSegment.from_file(
+                io.BytesIO(mp3_stream), format="mp3")
 
-    with self.audio_mutex:
-      t = self.move_head(open=True, release=False)
-      mp3_stream = text_to_mp3_stream(text=text, aws_region=aws_region, polly_voice_id=polly_voice_id, mp3_sample_rate=self.audio_sample_rate)
-      save_mp3_stream(mp3_stream, self.audio_temp_filepath)
-      sound = pydub.AudioSegment.from_file(io.BytesIO(mp3_stream), format="mp3")
-      if t > time.time():
-        time.sleep(t-time.time())
-      self.generate_onset_motor_events(self.audio_temp_filepath, dt_offset=0.5)
-      pydub.playback.play(sound)
-      time.sleep(0.5)
+            # Start stream on physical audio device
+            stream = self.audio_dev.open(
+                format=self.audio_dev.get_format_from_width(sound.sample_width),
+                channels=sound.channels,
+                rate=sound.frame_rate,
+                output=True)
+
+            # Insert onsets and immediately play audio
+            self.insert_onset_motor_events(onsets)
+            stream.write(sound._data)
+
+            # Stop stream on physical audio device
+            stream.stop_stream()
+            stream.close()
+
+            # Pause for a bit after playback
+            time.sleep(0.5)
 
 
 def test_pibass_audio():
-  parser = argparse.ArgumentParser()
-  parser.add_argument('text', help='Text to be spoken', type=str)
-  parser.add_argument('--aws_region', help='AWS Region [us-east-1]', type=str, default='us-east-1')
-  parser.add_argument('--polly_voice_id', help='AWS Polly Voice ID [Kimberly]', type=str, default='Kimberly')
-  parser.add_argument('--mp3_sample_rate', help='MP3 Sample Rate [22050]', type=int, default=22050)
-  args = parser.parse_args()
-  
-  bass = PiBassAudio(args, audio_sample_rate=args.mp3_sample_rate)
-  bass.speak(args.text)
-  time.sleep(0.5)
-  bass.terminate()
+    parser = argparse.ArgumentParser(description='Test pibass audio')
+    parser.add_argument('text', help='Text to be spoken', type=str)
+    parser.add_argument(
+        '--aws_region', help='AWS Region [us-east-1]', type=str, default='us-east-1')
+    parser.add_argument(
+        '--polly_voice_id', help='AWS Polly Voice ID [Kimberly]', type=str, default='Kimberly')
+    parser.add_argument('--mp3_sample_rate',
+                        help='MP3 Sample Rate [22050]', type=int, default=22050)
+    args = parser.parse_args()
 
-
-def test_polly_text_to_speech():
-  parser = argparse.ArgumentParser()
-  parser.add_argument('text', help='Text to be spoken', type=str)
-  parser.add_argument('--aws_region', help='AWS Region [us-east-1]', type=str, default='us-east-1')
-  parser.add_argument('--polly_voice_id', help='AWS Polly Voice ID [Kimberly]', type=str, default='Kimberly')
-  parser.add_argument('--mp3_sample_rate', help='MP3 Sample Rate [22050]', type=int, default=22050)
-  args = parser.parse_args()
-
-  mp3_stream = text_to_mp3_stream(text=args.text, aws_region=args.aws_region, polly_voice_id=args.polly_voice_id, mp3_sample_rate=args.mp3_sample_rate)
-  play_mp3_stream(mp3_stream)
-  save_mp3_stream(mp3_stream, 'polly_output.mp3')
-
-
-def test_aubio_onset_detection(filename='this_is_a_test.mp3', method='mkl', win_s=512, hop_s=256, samplerate=0):
-    s = aubio.source(filename, samplerate, hop_s)
-    samplerate = s.samplerate
-    print('Sample rate for %s: %d' % (filename, samplerate))
-    o = aubio.onset(method, win_s, hop_s, samplerate)
-    onsets = []
-    while True:
-      samples, read = s()
-      if o(samples):
-        print("%f" % o.get_last_s())
-        onsets.append(o.get_last())
-      if read < hop_s: break
-    print(onsets)
+    bass = PiBassAudio(args)
+    bass.speak(args.text)
+    bass.terminate()
 
 
 if __name__ == '__main__':
-  #test_aubio_onset_detection()
-  #test_polly_text_to_speech()
-  test_pibass_audio()
+    test_pibass_audio()

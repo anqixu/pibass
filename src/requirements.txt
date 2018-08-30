@@ -4,3 +4,5 @@ boto3
 googletrans
 pydub
 rtmbot
+pyaudio
+# sudo apt-get install python-pyaudio
