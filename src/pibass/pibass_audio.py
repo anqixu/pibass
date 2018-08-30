@@ -58,6 +58,8 @@ class PiBassAudio(PiBassAsyncMotors):
             polly_voice_id = polly_voice_id or self.args.polly_voice_id
 
         with self.audio_mutex:
+            # Notify initialization by moving head
+            self.clear_all_events()
             t = self.move_head(open=True, release=False)
 
             # Obtain MP3 stream
