@@ -19,18 +19,16 @@ class PiBassAudio(PiBassAsyncMotors):
     def __init__(self, args=None, audio_temp_filepath='/tmp/pibass_audio.mp3'):
         super(PiBassAudio, self).__init__()
         self.args = args
+        self.audio_sample_rate = args.mp3_sample_rate if args else 22050
         self.audio_temp_filepath = audio_temp_filepath
         self.audio_mutex = threading.Lock()
-        if args is not None:
-          self.onset_detector = OnsetDetector(
-              audio_sample_rate=args.mp3_sample_rate)
-        else:
-          self.onset_detector = OnsetDetector()
+        self.onset_detector = OnsetDetector(
+            audio_sample_rate=self.audio_sample_rate)
         self.audio_dev = pyaudio.PyAudio()
 
-  def terminate(self):
-    super(PiBassAudio, self).terminate()
-    self.audio_dev.terminate()
+    def terminate(self):
+        super(PiBassAudio, self).terminate()
+        self.audio_dev.terminate()
 
     def insert_onset_motor_events(self, onsets, mouth_open_sec_min=0.05, mouth_open_sec_max=0.1, mouth_move_sec=0.1, dt_offset=0.):
         # min_event_gap_sec = 2*mouth_move_sec+mouth_open_sec_min # disabled
@@ -63,7 +61,9 @@ class PiBassAudio(PiBassAsyncMotors):
 
             # Obtain MP3 stream
             mp3_stream = text_to_mp3_stream(
-                text=text, aws_region=aws_region, polly_voice_id=polly_voice_id, mp3_sample_rate=self.audio_sample_rate)
+                text=text, aws_region=aws_region,
+                polly_voice_id=polly_voice_id,
+                mp3_sample_rate=self.audio_sample_rate)
 
             # Compute onsets
             save_mp3_stream(mp3_stream, self.audio_temp_filepath)
@@ -75,7 +75,8 @@ class PiBassAudio(PiBassAsyncMotors):
 
             # Start stream on physical audio device
             stream = self.audio_dev.open(
-                format=self.audio_dev.get_format_from_width(sound.sample_width),
+                format=self.audio_dev.get_format_from_width(
+                    sound.sample_width),
                 channels=sound.channels,
                 rate=sound.frame_rate,
                 output=True)
