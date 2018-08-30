@@ -12,6 +12,8 @@ try:
   from .pibass_motors import *
 except ImportError:
   from pibass_motors import *
+except ValueError:
+  from pibass_motors import *
 
 
 def text_to_mp3_stream(
