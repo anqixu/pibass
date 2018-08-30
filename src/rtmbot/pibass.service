@@ -7,15 +7,15 @@
 
 [Unit]
 Description=PiBass RTM Slack Bot
-Wants=network-online.target
+Requires=network-online.target
 After=network-online.target
 
 [Service]
-Type=idle
 User=pi
 Group=pi
+Type=idle
 WorkingDirectory=/home/pi/rtmbot
 ExecStart=/usr/local/bin/rtmbot -c /home/pi/rtmbot/rtmbot.conf
 
 [Install]
-WantedBy=network-online.target
+WantedBy=multi-user.target
