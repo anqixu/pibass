@@ -77,10 +77,6 @@ class OnsetDetector:
         self.onset_buf_size = onset_buf_size
         self.onset_hop_size = onset_hop_size
         self.onset_method = onset_method
-        self.onset_detector = aubio.onset(self.onset_method,
-                                          self.onset_buf_size,
-                                          self.onset_hop_size,
-                                          self.audio_sample_rate)
 
     def detect(self, audio_path):
         """ Returns list of floats corresponding to onsets. """
@@ -88,6 +84,10 @@ class OnsetDetector:
         # Load audio stream
         audio_stream = aubio.source(
             audio_path, self.audio_sample_rate, self.onset_hop_size)
+        onset_detector = aubio.onset(self.onset_method,
+                                     self.onset_buf_size,
+                                     self.onset_hop_size,
+                                     self.audio_sample_rate)
 
         # Detect all onsets
         onsets = []
@@ -96,9 +96,9 @@ class OnsetDetector:
         while read >= self.onset_hop_size:
             samples, read = audio_stream()
             total_frames += read
-            if self.onset_detector(samples):
-                onsets.append(self.onset_detector.get_last_s())
-        audio_total_s = total_frames/audio_stream.samplerate
+            if onset_detector(samples):
+                onsets.append(onset_detector.get_last_s())
+        audio_total_s = float(total_frames)/audio_stream.samplerate
         onsets.append(audio_total_s)  # Insert end-of-file time
 
         return onsets

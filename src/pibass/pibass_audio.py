@@ -7,6 +7,7 @@ import io
 import random
 import time
 import threading
+import traceback
 
 try:
     from .audio_utils import OnsetDetector, text_to_mp3_stream, save_mp3_stream
@@ -30,6 +31,9 @@ class PiBassAudio(PiBassAsyncMotors):
     def terminate(self):
         super(PiBassAudio, self).terminate()
         self.audio_dev.terminate()
+        if self.log is not None:
+            self.log.close()
+            self.log = None
 
     def insert_onset_motor_events(self, onsets, mouth_open_sec_min=0.05, mouth_open_sec_max=0.1, mouth_move_sec=0.1, dt_offset=0.):
         # min_event_gap_sec = 2*mouth_move_sec+mouth_open_sec_min # disabled
@@ -53,6 +57,8 @@ class PiBassAudio(PiBassAsyncMotors):
         # TODO: randomly insert tail motor events (mouth_start_t to prev_t)
 
     def speak(self, text, polly_voice_id=None, aws_region='us-east-1'):
+        print('speak> %s' % text)
+
         if self.args is not None:
             aws_region = self.args.aws_region or aws_region
             polly_voice_id = polly_voice_id or self.args.polly_voice_id
@@ -84,6 +90,10 @@ class PiBassAudio(PiBassAsyncMotors):
                 rate=sound.frame_rate,
                 output=True)
 
+            # Wait till head movement is done
+            if t > time.time():
+                time.sleep(t - time.time())
+
             # Insert onsets and immediately play audio
             self.insert_onset_motor_events(onsets)
             stream.write(sound._data)
@@ -98,7 +108,7 @@ class PiBassAudio(PiBassAsyncMotors):
 
 def test_pibass_audio():
     parser = argparse.ArgumentParser(description='Test pibass audio')
-    parser.add_argument('text', help='Text to be spoken', type=str)
+    parser.add_argument('--text', help='Text to be spoken (leave empty to interact)', type=str, default='')
     parser.add_argument(
         '--aws_region', help='AWS Region [us-east-1]', type=str, default='us-east-1')
     parser.add_argument(
@@ -108,8 +118,21 @@ def test_pibass_audio():
     args = parser.parse_args()
 
     bass = PiBassAudio(args)
-    bass.speak(args.text)
-    bass.terminate()
+    if len(args.text) <= 0:
+        try:
+            while True:
+                cmd = raw_input('> ')
+                if cmd.lower() in ('exit', 'quit'):
+                    break
+                else:
+                    bass.speak(cmd)
+        except:
+            traceback.print_exc()
+            pass
+        bass.terminate()
+    else:
+        bass.speak(args.text)
+        bass.terminate()
 
 
 if __name__ == '__main__':
