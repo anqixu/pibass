@@ -33,16 +33,24 @@ class PiBassAudio(PiBassAsyncMotors):
         self.audio_dev = pyaudio.PyAudio()
 
         self.audio_cache_path = audio_cache_path
+        self.audio_cache_time = time.time()
         try:
             with open(self.audio_cache_path, 'rb') as fh:
                 self.audio_cache = pkl.load(fh)
         except:
             self.audio_cache = LimitedSizeDict(size_limit=5000)
-        
 
     def terminate(self):
         super(PiBassAudio, self).terminate()
         self.audio_dev.terminate()
+        self.save_cache(force=True)
+
+    def save_cache(self, force=False):
+        if not forced:
+            now = time.time()
+            if now - self.audio_cache_time < 120:
+                return
+            self.audio_cache_time = now
         try:
             with open(self.audio_cache_path, 'wb') as fh:
                 pkl.dump(self.audio_cache, fh)
@@ -86,6 +94,7 @@ class PiBassAudio(PiBassAsyncMotors):
             onsets = self.onset_detector.detect(self.audio_temp_filepath)
 
             self.audio_cache[key] = (mp3_stream, onsets)
+            self.save_cache()
         return mp3_stream, onsets
 
     def speak(self, text, polly_voice_id=None, aws_region='us-east-1'):
