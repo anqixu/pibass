@@ -4,21 +4,25 @@ import argparse
 import pyaudio
 import pydub
 import io
+import pickle as pkl
 import random
 import time
 import threading
 import traceback
 
 try:
-    from .audio_utils import OnsetDetector, text_to_mp3_stream, save_mp3_stream
+    from .audio_utils import LimitedSizeDict, OnsetDetector, text_to_mp3_stream, save_mp3_stream
     from .pibass_motors import PiBassAsyncMotors
 except (ImportError, ValueError) as err:
-    from audio_utils import OnsetDetector, text_to_mp3_stream, save_mp3_stream
+    from audio_utils import LimitedSizeDict, OnsetDetector, text_to_mp3_stream, save_mp3_stream
     from pibass_motors import PiBassAsyncMotors
 
 
 class PiBassAudio(PiBassAsyncMotors):
-    def __init__(self, args=None, audio_temp_filepath='/tmp/pibass_audio.mp3'):
+    def __init__(self,
+                 args=None,
+                 audio_temp_filepath='/tmp/pibass_audio.mp3',
+                 audio_cache_path='/home/pi/pibass_cache.pkl'):
         super(PiBassAudio, self).__init__()
         self.args = args
         self.audio_sample_rate = args.mp3_sample_rate if args else 22050
@@ -28,12 +32,22 @@ class PiBassAudio(PiBassAsyncMotors):
             audio_sample_rate=self.audio_sample_rate)
         self.audio_dev = pyaudio.PyAudio()
 
+        self.audio_cache_path = audio_cache_path
+        try:
+            with open(self.audio_cache_path, 'rb') as fh:
+                self.audio_cache = pkl.load(fh)
+        except:
+            self.audio_cache = LimitedSizeDict(size_limit=5000)
+        
+
     def terminate(self):
         super(PiBassAudio, self).terminate()
         self.audio_dev.terminate()
-        if self.log is not None:
-            self.log.close()
-            self.log = None
+        try:
+            with open(self.audio_cache_path, 'wb') as fh:
+                pkl.dump(self.audio_cache, fh)
+        except:
+            traceback.print_exc()
 
     def insert_onset_motor_events(self, onsets, mouth_open_sec_min=0.05, mouth_open_sec_max=0.1, mouth_move_sec=0.1, dt_offset=0.):
         # min_event_gap_sec = 2*mouth_move_sec+mouth_open_sec_min # disabled
@@ -56,6 +70,24 @@ class PiBassAudio(PiBassAsyncMotors):
 
         # TODO: randomly insert tail motor events (mouth_start_t to prev_t)
 
+    def _tts(self, text, polly_voice_id, aws_region):
+        key = (text, polly_voice_id)
+        if key in self.audio_cache:
+            mp3_stream, onsets = self.audio_cache[key]
+        else:
+            # Obtain MP3 stream
+            mp3_stream = text_to_mp3_stream(
+                text=text, aws_region=aws_region,
+                polly_voice_id=polly_voice_id,
+                mp3_sample_rate=self.audio_sample_rate)
+
+            # Compute onsets
+            save_mp3_stream(mp3_stream, self.audio_temp_filepath)
+            onsets = self.onset_detector.detect(self.audio_temp_filepath)
+
+            self.audio_cache[key] = (mp3_stream, onsets)
+        return mp3_stream, onsets
+
     def speak(self, text, polly_voice_id=None, aws_region='us-east-1'):
         print('speak> %s' % text)
 
@@ -68,15 +100,8 @@ class PiBassAudio(PiBassAsyncMotors):
             self.clear_all_events()
             t = self.move_head(open=True, release=False)
 
-            # Obtain MP3 stream
-            mp3_stream = text_to_mp3_stream(
-                text=text, aws_region=aws_region,
-                polly_voice_id=polly_voice_id,
-                mp3_sample_rate=self.audio_sample_rate)
-
-            # Compute onsets
-            save_mp3_stream(mp3_stream, self.audio_temp_filepath)
-            onsets = self.onset_detector.detect(self.audio_temp_filepath)
+            # Obtain MP3 stream and compute onsets, or load from cache
+            mp3_stream, onsets = self._tts(text, polly_voice_id, aws_region)
 
             # Load as pydub audio segment
             sound = pydub.AudioSegment.from_file(
@@ -122,9 +147,10 @@ def test_pibass_audio():
         try:
             while True:
                 cmd = raw_input('> ')
+                cmd = cmd.strip()
                 if cmd.lower() in ('exit', 'quit'):
                     break
-                else:
+                elif len(cmd) > 0:
                     bass.speak(cmd)
         except:
             traceback.print_exc()
