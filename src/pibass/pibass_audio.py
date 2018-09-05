@@ -45,7 +45,7 @@ class PiBassAudio(PiBassAsyncMotors):
         self.audio_dev.terminate()
         self.save_cache(force=True)
 
-    def save_cache(self, force=False):
+    def save_cache(self, forced=False):
         if not forced:
             now = time.time()
             if now - self.audio_cache_time < 120:
